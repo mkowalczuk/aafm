@@ -9,6 +9,8 @@ class Aafm:
 		self.host_cwd = host_cwd
 		self.device_cwd = device_cwd
 		
+		self.busybox = False
+
 		# The Android device should always use POSIX path style separators (/),
 		# so we can happily use os.path.join when running on Linux (which is POSIX)
 		# But we can't use it when running on Windows machines because they use '\\'
@@ -22,6 +24,7 @@ class Aafm:
 		self._path_normpath_function = pathmodule.normpath
 		self._path_basename_function = pathmodule.basename
 		
+		self.probe_for_busybox()
 
 	def execute(self, command):
 		print "EXECUTE=", command
@@ -52,15 +55,25 @@ class Aafm:
 		return self.parse_device_list( self.device_list_files(self.device_cwd) )
 
 
+	def probe_for_busybox(self):
+		command = '%s shell ls --help' % (self.adb)
+		lines = self.execute(command)
+		if lines[0].startswith('BusyBox'):
+			print "BusyBox ls detected"
+			self.busybox = True
+
 	def device_list_files(self, device_dir):
-		command = '%s shell ls -l -a "%s"' % (self.adb, device_dir)
+		command = '%s shell ls -l -A %s"%s"' % (self.adb, "-e " if self.busybox else "", device_dir)
 		lines = self.execute(command)
 		return lines
 
 
 	def parse_device_list(self, lines):
 		entries = {}
-		pattern = re.compile(r"^(?P<permissions>[drwx\-]+) (?P<owner>\w+)\W+(?P<group>[\w_]+)\W*(?P<size>\d+)?\W+(?P<datetime>\d{4}-\d{2}-\d{2} \d{2}:\d{2}) (?P<name>.+)$")
+		if self.busybox:
+			pattern = re.compile(r"^(?P<permissions>[drwx\-]+)\s+(?P<hardlinks>\d+)\s+(?P<owner>[\w_]+)\s+(?P<group>[\w_]+)\s+(?P<size>\d+)\s+(?P<datetime>\w{3} \w{3}\s+\d+\s+\d{2}:\d{2}:\d{2} \d{4}) (?P<name>.+)$")
+		else:
+			pattern = re.compile(r"^(?P<permissions>[drwx\-]+) (?P<owner>\w+)\W+(?P<group>[\w_]+)\W*(?P<size>\d+)?\W+(?P<datetime>\d{4}-\d{2}-\d{2} \d{2}:\d{2}) (?P<name>.+)$")
 
 		for line in lines:
 			line = line.rstrip()
@@ -74,7 +87,11 @@ class Aafm:
 				if fsize is None:
 					fsize = 0
 				filename = match.group('name')
-				timestamp = time.mktime((time.strptime(match.group('datetime'), "%Y-%m-%d %H:%M")))
+				if self.busybox:
+					date_format = "%a %b %d %H:%M:%S %Y"
+				else:
+					date_format = "%Y-%m-%d %H:%M"
+				timestamp = time.mktime((time.strptime(match.group('datetime'), date_format)))
 				
 				is_directory = permissions.startswith('d')
 
