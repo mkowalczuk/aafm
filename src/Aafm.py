@@ -63,7 +63,11 @@ class Aafm:
 			self.busybox = True
 
 	def device_list_files(self, device_dir):
-		command = '%s shell ls -l -A %s"%s"' % (self.adb, "-e " if self.busybox else "", device_dir)
+		if self.busybox:
+			command = '%s shell ls -l -A -e --color=never "%s"' % (self.adb, device_dir)
+		else:
+			command = '%s shell ls -l -A "%s"' % (self.adb, device_dir)
+
 		lines = self.execute(command)
 		return lines
 
